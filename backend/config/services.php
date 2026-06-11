@@ -35,4 +35,10 @@ return [
         ],
     ],
 
+    'maia' => [
+        'api_key' => env('MAIA_API_KEY'),
+        'base_url' => env('MAIA_BASE_URL', 'https://api.maiarouter.ai/v1/chat/completions'),
+        'model' => env('MAIA_MODEL', 'maia/gemini-3.1-flash-lite-preview'),
+    ],
+
 ];

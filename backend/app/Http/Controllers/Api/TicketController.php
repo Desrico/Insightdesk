@@ -6,9 +6,12 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreTicketRequest;
 use App\Http\Requests\UpdateTicketStatusRequest;
 use App\Models\Ticket;
+use App\Services\MaiaTicketAnalysisService;
 use App\Support\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class TicketController extends Controller
 {
@@ -19,30 +22,32 @@ class TicketController extends Controller
             ->latest()
             ->paginate($request->integer('per_page', 10));
 
-        return ApiResponse::success('Tickets retrieved successfully.', $tickets);
+        return ApiResponse::success('Data tiket berhasil diambil.', $tickets);
     }
 
     public function store(StoreTicketRequest $request): JsonResponse
     {
+        $validated = $request->validated();
+
         $ticket = Ticket::create([
-            'title' => $request->validated('title'),
-            'description' => $request->validated('description'),
-            'requester_name' => $request->validated('requester_name'),
-            'requester_email' => $request->validated('requester_email'),
-            'category' => $request->validated('category'),
-            'priority' => $request->validated('priority') ?? 'medium',
+            'title' => $validated['title'],
+            'description' => $validated['description'],
+            'requester_name' => $validated['requester_name'] ?? null,
+            'requester_email' => $validated['requester_email'] ?? null,
+            'category' => $validated['category'] ?? null,
+            'priority' => $validated['priority'] ?? 'medium',
             'status' => 'open',
             'version' => 1,
         ]);
 
-        return ApiResponse::success('Ticket created successfully.', $ticket, 201);
+        return ApiResponse::success('Tiket berhasil dibuat.', $ticket, 201);
     }
 
     public function show(Ticket $ticket): JsonResponse
     {
         $ticket->load(['statusHistories', 'aiAnalysis']);
 
-        return ApiResponse::success('Ticket detail retrieved successfully.', $ticket);
+        return ApiResponse::success('Detail tiket berhasil diambil.', $ticket);
     }
 
     public function updateStatus(UpdateTicketStatusRequest $request, Ticket $ticket): JsonResponse
@@ -51,7 +56,7 @@ class TicketController extends Controller
 
         if (isset($validated['version']) && (int) $validated['version'] !== $ticket->version) {
             return ApiResponse::error(
-                'Conflict detected. Ticket has been updated by another process.',
+                'Conflict detected. Tiket sudah diperbarui oleh proses lain.',
                 ['current_version' => $ticket->version],
                 409
             );
@@ -71,8 +76,44 @@ class TicketController extends Controller
         ]);
 
         return ApiResponse::success(
-            'Ticket status updated successfully.',
+            'Status tiket berhasil diperbarui.',
             $ticket->load(['statusHistories', 'aiAnalysis'])
         );
+    }
+
+    public function analyze(Ticket $ticket, MaiaTicketAnalysisService $service): JsonResponse
+    {
+        try {
+            $analysis = $service->analyze($ticket);
+
+            $ticket->aiAnalysis()->updateOrCreate(
+                ['ticket_id' => $ticket->id],
+                [
+                    'summary' => $analysis['summary'],
+                    'category' => $analysis['category'],
+                    'sentiment' => $analysis['sentiment'],
+                    'priority_suggestion' => $analysis['priority_suggestion'],
+                    'recommendation' => $analysis['recommendation'],
+                    'raw_response' => $analysis['raw_response'],
+                    'analyzed_at' => now(),
+                ]
+            );
+
+            return ApiResponse::success(
+                'Tiket berhasil dianalisis dengan AI.',
+                $ticket->load(['statusHistories', 'aiAnalysis'])
+            );
+        } catch (Throwable $exception) {
+            Log::error('AI ticket analysis failed', [
+                'ticket_id' => $ticket->id,
+                'message' => $exception->getMessage(),
+            ]);
+
+            return ApiResponse::error(
+                'Gagal menganalisis tiket dengan AI.',
+                ['detail' => $exception->getMessage()],
+                500
+            );
+        }
     }
 }

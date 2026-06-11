@@ -3,6 +3,13 @@ import "./App.css";
 
 const API_BASE_URL = "http://localhost:8000/api";
 
+const statusLabels = {
+  open: "Baru",
+  in_progress: "Diproses",
+  resolved: "Selesai",
+  closed: "Ditutup",
+};
+
 function App() {
   const [tickets, setTickets] = useState([]);
   const [selectedTicket, setSelectedTicket] = useState(null);
@@ -14,7 +21,6 @@ function App() {
     description: "",
     requester_name: "",
     requester_email: "",
-    priority: "medium",
   });
 
   const [statusForm, setStatusForm] = useState({
@@ -32,7 +38,7 @@ function App() {
 
       setTickets(result.data?.data ?? []);
     } catch (error) {
-      setMessage("Gagal mengambil data ticket.");
+      setMessage("Gagal mengambil data tiket.");
     } finally {
       setLoading(false);
     }
@@ -46,13 +52,18 @@ function App() {
       const response = await fetch(`${API_BASE_URL}/tickets/${id}`);
       const result = await response.json();
 
+      if (!response.ok) {
+        setMessage(result.message || "Gagal mengambil detail tiket.");
+        return;
+      }
+
       setSelectedTicket(result.data);
       setStatusForm({
         status: result.data.status,
         note: "",
       });
     } catch (error) {
-      setMessage("Gagal mengambil detail ticket.");
+      setMessage("Gagal mengambil detail tiket.");
     } finally {
       setLoading(false);
     }
@@ -75,23 +86,25 @@ function App() {
       const result = await response.json();
 
       if (!response.ok) {
-        setMessage(result.message || "Gagal membuat ticket.");
+        setMessage(result.message || "Gagal membuat tiket.");
         return;
       }
 
-      setMessage("Ticket berhasil dibuat.");
+      setMessage("Tiket berhasil dibuat.");
       setForm({
         title: "",
         description: "",
         requester_name: "",
         requester_email: "",
-        priority: "medium",
       });
 
       await fetchTickets();
-      await fetchTicketDetail(result.data.id);
+
+      if (result.data?.id) {
+        await fetchTicketDetail(result.data.id);
+      }
     } catch (error) {
-      setMessage("Terjadi kesalahan saat membuat ticket.");
+      setMessage("Terjadi kesalahan saat membuat tiket.");
     } finally {
       setLoading(false);
     }
@@ -124,15 +137,46 @@ function App() {
       const result = await response.json();
 
       if (!response.ok) {
-        setMessage(result.message || "Gagal mengubah status ticket.");
+        setMessage(result.message || "Gagal mengubah status tiket.");
         return;
       }
 
-      setMessage("Status ticket berhasil diperbarui.");
+      setMessage("Status tiket berhasil diperbarui.");
       setSelectedTicket(result.data);
       await fetchTickets();
     } catch (error) {
-      setMessage("Terjadi kesalahan saat mengubah status ticket.");
+      setMessage("Terjadi kesalahan saat mengubah status tiket.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAnalyzeTicket = async () => {
+    if (!selectedTicket) return;
+
+    setLoading(true);
+    setMessage("");
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/tickets/${selectedTicket.id}/analyze`,
+        {
+          method: "POST",
+        },
+      );
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        setMessage(result.message || "Gagal menjalankan analisis AI.");
+        return;
+      }
+
+      setMessage("Analisis AI berhasil dibuat.");
+      setSelectedTicket(result.data);
+      await fetchTickets();
+    } catch (error) {
+      setMessage("Terjadi kesalahan saat menjalankan analisis AI.");
     } finally {
       setLoading(false);
     }
@@ -142,27 +186,64 @@ function App() {
     fetchTickets();
   }, []);
 
+  const dashboardStats = {
+    total: tickets.length,
+    baru: tickets.filter((ticket) => ticket.status === "open").length,
+    diproses: tickets.filter((ticket) => ticket.status === "in_progress")
+      .length,
+    selesai: tickets.filter((ticket) => ticket.status === "resolved").length,
+    dianalisis: tickets.filter((ticket) => ticket.ai_analysis).length,
+  };
+
   return (
     <main className="app">
       <header className="header">
         <div>
           <h1>InsightDesk</h1>
-          <p>AI-Powered Support Ticket & Feedback Analyzer</p>
+          <p>Penganalisis Support Ticket dan Feedback Berbasis AI</p>
         </div>
-        <button onClick={fetchTickets}>Refresh</button>
+        <button onClick={fetchTickets}>Muat Ulang</button>
       </header>
 
       {message && <div className="alert">{message}</div>}
 
+      <section className="dashboard">
+        <div className="stat-card">
+          <p>Total Tiket</p>
+          <h3>{dashboardStats.total}</h3>
+        </div>
+
+        <div className="stat-card">
+          <p>Tiket Baru</p>
+          <h3>{dashboardStats.baru}</h3>
+        </div>
+
+        <div className="stat-card">
+          <p>Sedang Ditangani</p>
+          <h3>{dashboardStats.diproses}</h3>
+        </div>
+
+        <div className="stat-card">
+          <p>Selesai</p>
+          <h3>{dashboardStats.selesai}</h3>
+        </div>
+
+        <div className="stat-card">
+          <p>Sudah Dianalisis AI</p>
+          <h3>{dashboardStats.dianalisis}</h3>
+        </div>
+      </section>
+
       <section className="grid">
         <div className="card">
-          <h2>Create Ticket</h2>
+          <h2>Buat Tiket</h2>
 
           <form onSubmit={handleCreateTicket} className="form">
             <label>
-              Title
+              Subjek Tiket
               <input
                 type="text"
+                placeholder="Contoh: Fitur pencarian lambat"
                 value={form.title}
                 onChange={(e) => setForm({ ...form, title: e.target.value })}
                 required
@@ -170,8 +251,9 @@ function App() {
             </label>
 
             <label>
-              Description
+              Deskripsi Masalah / Feedback
               <textarea
+                placeholder="Jelaskan masalah, kendala, pertanyaan, atau feedback pengguna"
                 value={form.description}
                 onChange={(e) =>
                   setForm({ ...form, description: e.target.value })
@@ -181,9 +263,10 @@ function App() {
             </label>
 
             <label>
-              Requester Name
+              Nama Pelapor
               <input
                 type="text"
+                placeholder="Contoh: Budi"
                 value={form.requester_name}
                 onChange={(e) =>
                   setForm({ ...form, requester_name: e.target.value })
@@ -192,9 +275,10 @@ function App() {
             </label>
 
             <label>
-              Requester Email
+              Email Pelapor
               <input
                 type="email"
+                placeholder="Contoh: budi@email.com"
                 value={form.requester_email}
                 onChange={(e) =>
                   setForm({ ...form, requester_email: e.target.value })
@@ -202,31 +286,19 @@ function App() {
               />
             </label>
 
-            <label>
-              Priority
-              <select
-                value={form.priority}
-                onChange={(e) => setForm({ ...form, priority: e.target.value })}
-              >
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-              </select>
-            </label>
-
             <button type="submit" disabled={loading}>
-              {loading ? "Processing..." : "Create Ticket"}
+              {loading ? "Memproses..." : "Buat Tiket"}
             </button>
           </form>
         </div>
 
         <div className="card">
-          <h2>Ticket List</h2>
+          <h2>Daftar Tiket</h2>
 
-          {loading && <p>Loading...</p>}
+          {loading && <p>Sedang memuat...</p>}
 
           {!loading && tickets.length === 0 && (
-            <p className="muted">Belum ada ticket.</p>
+            <p className="muted">Belum ada tiket.</p>
           )}
 
           <div className="ticket-list">
@@ -240,8 +312,8 @@ function App() {
                   <strong>{ticket.title}</strong>
                   <p>{ticket.description}</p>
                 </div>
-                <span className={`badge ${ticket.priority}`}>
-                  {ticket.priority}
+                <span className="status">
+                  {statusLabels[ticket.status] || ticket.status}
                 </span>
               </button>
             ))}
@@ -251,17 +323,17 @@ function App() {
 
       {selectedTicket && (
         <section className="card detail">
-          <h2>Ticket Detail</h2>
+          <h2>Detail Tiket</h2>
 
           <div className="detail-grid">
             <div>
-              <p className="label">Title</p>
-              <h3>{selectedTicket.title}</h3>
+              <p className="label">Subjek Tiket</p>
+              <p className="detail-value">{selectedTicket.title}</p>
 
-              <p className="label">Description</p>
+              <p className="label">Deskripsi Masalah / Feedback</p>
               <p>{selectedTicket.description}</p>
 
-              <p className="label">Requester</p>
+              <p className="label">Pelapor</p>
               <p>
                 {selectedTicket.requester_name || "-"} (
                 {selectedTicket.requester_email || "-"})
@@ -270,20 +342,17 @@ function App() {
 
             <div>
               <p className="label">Status</p>
-              <span className="status">{selectedTicket.status}</span>
-
-              <p className="label">Priority</p>
-              <span className={`badge ${selectedTicket.priority}`}>
-                {selectedTicket.priority}
+              <span className="status">
+                {statusLabels[selectedTicket.status] || selectedTicket.status}
               </span>
 
-              <p className="label">Version</p>
+              <p className="label">Versi Data</p>
               <p>{selectedTicket.version}</p>
             </div>
           </div>
 
           <form onSubmit={handleUpdateStatus} className="status-form">
-            <h3>Update Status</h3>
+            <h3>Perbarui Status</h3>
 
             <select
               value={statusForm.status}
@@ -291,15 +360,15 @@ function App() {
                 setStatusForm({ ...statusForm, status: e.target.value })
               }
             >
-              <option value="open">Open</option>
-              <option value="in_progress">In Progress</option>
-              <option value="resolved">Resolved</option>
-              <option value="closed">Closed</option>
+              <option value="open">Baru</option>
+              <option value="in_progress">Diproses</option>
+              <option value="resolved">Selesai</option>
+              <option value="closed">Ditutup</option>
             </select>
 
             <input
               type="text"
-              placeholder="Note"
+              placeholder="Catatan perubahan status"
               value={statusForm.note}
               onChange={(e) =>
                 setStatusForm({ ...statusForm, note: e.target.value })
@@ -307,20 +376,23 @@ function App() {
             />
 
             <button type="submit" disabled={loading}>
-              Update Status
+              Perbarui Status
             </button>
           </form>
 
           <div className="history">
-            <h3>Status History</h3>
+            <h3>Riwayat Status</h3>
 
             {selectedTicket.status_histories?.length > 0 ? (
               selectedTicket.status_histories.map((history) => (
                 <div key={history.id} className="history-item">
                   <strong>
-                    {history.from_status || "-"} → {history.to_status}
+                    {statusLabels[history.from_status] ||
+                      history.from_status ||
+                      "-"}{" "}
+                    → {statusLabels[history.to_status] || history.to_status}
                   </strong>
-                  <p>{history.note || "No note"}</p>
+                  <p>{history.note || "Tidak ada catatan"}</p>
                 </div>
               ))
             ) : (
@@ -329,34 +401,42 @@ function App() {
           </div>
 
           <div className="ai-box">
-            <h3>AI Analysis</h3>
+            <h3>Analisis AI</h3>
+
+            <button
+              type="button"
+              onClick={handleAnalyzeTicket}
+              disabled={loading}
+            >
+              {loading ? "Menganalisis..." : "Jalankan Analisis AI"}
+            </button>
 
             {selectedTicket.ai_analysis ? (
               <>
                 <p>
-                  <strong>Summary:</strong>{" "}
+                  <strong>Ringkasan:</strong>{" "}
                   {selectedTicket.ai_analysis.summary || "-"}
                 </p>
                 <p>
-                  <strong>Category:</strong>{" "}
+                  <strong>Kategori Masalah:</strong>{" "}
                   {selectedTicket.ai_analysis.category || "-"}
                 </p>
                 <p>
-                  <strong>Sentiment:</strong>{" "}
+                  <strong>Sentimen Pengguna:</strong>{" "}
                   {selectedTicket.ai_analysis.sentiment || "-"}
                 </p>
                 <p>
-                  <strong>Priority Suggestion:</strong>{" "}
+                  <strong>Saran Prioritas Penanganan:</strong>{" "}
                   {selectedTicket.ai_analysis.priority_suggestion || "-"}
                 </p>
                 <p>
-                  <strong>Recommendation:</strong>{" "}
+                  <strong>Rekomendasi:</strong>{" "}
                   {selectedTicket.ai_analysis.recommendation || "-"}
                 </p>
               </>
             ) : (
               <p className="muted">
-                AI analysis belum tersedia. Integrasi Gemini akan ditambahkan
+                Analisis AI belum tersedia. Integrasi Gemini akan ditambahkan
                 pada tahap berikutnya.
               </p>
             )}
