@@ -22,4 +22,9 @@ class Ticket extends Model
     {
         return $this->hasMany(TicketStatusHistory::class);
     }
+
+    public function aiAnalysis(): HasOne
+    {
+        return $this->hasOne(TicketAiAnalysis::class);
+    }
 }

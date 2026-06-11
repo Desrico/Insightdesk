@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreTicketRequest;
 use App\Http\Requests\UpdateTicketStatusRequest;
 use App\Models\Ticket;
+use App\Support\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -14,13 +15,11 @@ class TicketController extends Controller
     public function index(Request $request): JsonResponse
     {
         $tickets = Ticket::query()
+            ->with('aiAnalysis')
             ->latest()
             ->paginate($request->integer('per_page', 10));
 
-        return response()->json([
-            'message' => 'Tickets retrieved successfully.',
-            'data' => $tickets,
-        ]);
+        return ApiResponse::success('Tickets retrieved successfully.', $tickets);
     }
 
     public function store(StoreTicketRequest $request): JsonResponse
@@ -36,20 +35,14 @@ class TicketController extends Controller
             'version' => 1,
         ]);
 
-        return response()->json([
-            'message' => 'Ticket created successfully.',
-            'data' => $ticket,
-        ], 201);
+        return ApiResponse::success('Ticket created successfully.', $ticket, 201);
     }
 
     public function show(Ticket $ticket): JsonResponse
     {
-        $ticket->load('statusHistories');
+        $ticket->load(['statusHistories', 'aiAnalysis']);
 
-        return response()->json([
-            'message' => 'Ticket detail retrieved successfully.',
-            'data' => $ticket,
-        ]);
+        return ApiResponse::success('Ticket detail retrieved successfully.', $ticket);
     }
 
     public function updateStatus(UpdateTicketStatusRequest $request, Ticket $ticket): JsonResponse
@@ -57,10 +50,11 @@ class TicketController extends Controller
         $validated = $request->validated();
 
         if (isset($validated['version']) && (int) $validated['version'] !== $ticket->version) {
-            return response()->json([
-                'message' => 'Conflict detected. Ticket has been updated by another process.',
-                'current_version' => $ticket->version,
-            ], 409);
+            return ApiResponse::error(
+                'Conflict detected. Ticket has been updated by another process.',
+                ['current_version' => $ticket->version],
+                409
+            );
         }
 
         $oldStatus = $ticket->status;
@@ -76,9 +70,9 @@ class TicketController extends Controller
             'note' => $validated['note'] ?? null,
         ]);
 
-        return response()->json([
-            'message' => 'Ticket status updated successfully.',
-            'data' => $ticket->load('statusHistories'),
-        ]);
+        return ApiResponse::success(
+            'Ticket status updated successfully.',
+            $ticket->load(['statusHistories', 'aiAnalysis'])
+        );
     }
 }

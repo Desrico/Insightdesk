@@ -1,0 +1,107 @@
+openapi: 3.0.3
+info:
+  title: InsightDesk API
+  version: 1.0.0
+  description: API documentation for InsightDesk support ticket and AI analysis system.
+
+servers:
+  - url: http://localhost:8000/api
+    description: Local Docker API
+
+paths:
+  /tickets:
+    get:
+      summary: Get ticket list
+      tags:
+        - Tickets
+      responses:
+        "200":
+          description: Tickets retrieved successfully
+    post:
+      summary: Create ticket
+      tags:
+        - Tickets
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - title
+                - description
+              properties:
+                title:
+                  type: string
+                  example: Login tidak bisa digunakan
+                description:
+                  type: string
+                  example: Saya tidak bisa login sejak pagi meskipun sudah reset password.
+                requester_name:
+                  type: string
+                  example: User Test
+                requester_email:
+                  type: string
+                  example: user@test.com
+                priority:
+                  type: string
+                  enum: [low, medium, high]
+                  example: high
+      responses:
+        "201":
+          description: Ticket created successfully
+
+  /tickets/{ticket}:
+    get:
+      summary: Get ticket detail
+      tags:
+        - Tickets
+      parameters:
+        - name: ticket
+          in: path
+          required: true
+          schema:
+            type: integer
+          example: 1
+      responses:
+        "200":
+          description: Ticket detail retrieved successfully
+        "404":
+          description: Ticket not found
+
+  /tickets/{ticket}/status:
+    patch:
+      summary: Update ticket status
+      tags:
+        - Tickets
+      parameters:
+        - name: ticket
+          in: path
+          required: true
+          schema:
+            type: integer
+          example: 1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - status
+              properties:
+                status:
+                  type: string
+                  enum: [open, in_progress, resolved, closed]
+                  example: in_progress
+                note:
+                  type: string
+                  example: Mulai ditangani
+                version:
+                  type: integer
+                  example: 1
+      responses:
+        "200":
+          description: Ticket status updated successfully
+        "409":
+          description: Conflict detected
