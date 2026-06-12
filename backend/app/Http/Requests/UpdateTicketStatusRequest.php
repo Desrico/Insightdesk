@@ -14,9 +14,9 @@ class UpdateTicketStatusRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'status' => ['required', 'in:open,in_progress,resolved,closed'],
+            'status' => ['required', 'in:open,in_progress,resolved'],
             'note' => ['nullable', 'string'],
-            'version' => ['nullable', 'integer'],
+            'version' => ['required', 'integer', 'min:1'],
         ];
     }
 }

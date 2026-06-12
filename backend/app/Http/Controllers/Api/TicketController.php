@@ -6,10 +6,12 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\StoreTicketRequest;
 use App\Http\Requests\UpdateTicketStatusRequest;
 use App\Models\Ticket;
+use App\Services\DashboardSummaryService;
 use App\Services\MaiaTicketAnalysisService;
 use App\Support\ApiResponse;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -17,16 +19,20 @@ class TicketController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
+        $perPage = max(1, min($request->integer('per_page', 10), 100));
+
         $tickets = Ticket::query()
             ->with('aiAnalysis')
             ->latest()
-            ->paginate($request->integer('per_page', 10));
+            ->paginate($perPage);
 
         return ApiResponse::success('Data tiket berhasil diambil.', $tickets);
     }
 
-    public function store(StoreTicketRequest $request): JsonResponse
-    {
+    public function store(
+        StoreTicketRequest $request,
+        DashboardSummaryService $dashboardSummary
+    ): JsonResponse {
         $validated = $request->validated();
 
         $ticket = Ticket::create([
@@ -40,6 +46,8 @@ class TicketController extends Controller
             'version' => 1,
         ]);
 
+        $dashboardSummary->invalidate();
+
         return ApiResponse::success('Tiket berhasil dibuat.', $ticket, 201);
     }
 
@@ -50,29 +58,61 @@ class TicketController extends Controller
         return ApiResponse::success('Detail tiket berhasil diambil.', $ticket);
     }
 
-    public function updateStatus(UpdateTicketStatusRequest $request, Ticket $ticket): JsonResponse
-    {
+    public function updateStatus(
+        UpdateTicketStatusRequest $request,
+        Ticket $ticket,
+        DashboardSummaryService $dashboardSummary
+    ): JsonResponse {
         $validated = $request->validated();
+        $expectedVersion = (int) $validated['version'];
+        $oldStatus = $ticket->status;
+        $updated = DB::transaction(function () use ($ticket, $validated, $expectedVersion, $oldStatus): bool {
+            $affectedRows = Ticket::query()
+                ->whereKey($ticket->id)
+                ->where('version', $expectedVersion)
+                ->update([
+                    'status' => $validated['status'],
+                    'version' => $expectedVersion + 1,
+                    'updated_at' => now(),
+                ]);
 
-        if (isset($validated['version']) && (int) $validated['version'] !== $ticket->version) {
+            if ($affectedRows === 0) {
+                return false;
+            }
+
+            $ticket->statusHistories()->create([
+                'from_status' => $oldStatus,
+                'to_status' => $validated['status'],
+                'note' => $validated['note'] ?? null,
+            ]);
+
+            return true;
+        });
+
+        if (! $updated) {
+            $currentVersion = Ticket::query()->whereKey($ticket->id)->value('version');
+
+            Log::warning('ticket.optimistic_lock_conflict', [
+                'ticket_id' => $ticket->id,
+                'expected_version' => $expectedVersion,
+                'current_version' => $currentVersion,
+            ]);
+
             return ApiResponse::error(
                 'Conflict detected. Tiket sudah diperbarui oleh proses lain.',
-                ['current_version' => $ticket->version],
+                ['current_version' => $currentVersion],
                 409
             );
         }
 
-        $oldStatus = $ticket->status;
+        $dashboardSummary->invalidate();
+        $ticket->refresh();
 
-        $ticket->update([
-            'status' => $validated['status'],
-            'version' => $ticket->version + 1,
-        ]);
-
-        $ticket->statusHistories()->create([
+        Log::info('ticket.status_updated', [
+            'ticket_id' => $ticket->id,
             'from_status' => $oldStatus,
             'to_status' => $ticket->status,
-            'note' => $validated['note'] ?? null,
+            'version' => $ticket->version,
         ]);
 
         return ApiResponse::success(
@@ -81,8 +121,11 @@ class TicketController extends Controller
         );
     }
 
-    public function analyze(Ticket $ticket, MaiaTicketAnalysisService $service): JsonResponse
-    {
+    public function analyze(
+        Ticket $ticket,
+        MaiaTicketAnalysisService $service,
+        DashboardSummaryService $dashboardSummary
+    ): JsonResponse {
         try {
             $analysis = $service->analyze($ticket);
 
@@ -99,6 +142,8 @@ class TicketController extends Controller
                 ]
             );
 
+            $dashboardSummary->invalidate();
+
             return ApiResponse::success(
                 'Tiket berhasil dianalisis dengan AI.',
                 $ticket->load(['statusHistories', 'aiAnalysis'])
@@ -111,7 +156,7 @@ class TicketController extends Controller
 
             return ApiResponse::error(
                 'Gagal menganalisis tiket dengan AI.',
-                ['detail' => $exception->getMessage()],
+                null,
                 500
             );
         }

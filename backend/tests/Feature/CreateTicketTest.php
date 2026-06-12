@@ -16,6 +16,7 @@ class CreateTicketTest extends TestCase
             'description' => 'Saya tidak bisa login sejak pagi meskipun sudah reset password.',
             'requester_name' => 'User Test',
             'requester_email' => 'user@test.com',
+            'category' => 'Masalah Teknis',
             'priority' => 'high',
         ];
 
@@ -30,6 +31,7 @@ class CreateTicketTest extends TestCase
                     'description',
                     'requester_name',
                     'requester_email',
+                    'category',
                     'priority',
                     'status',
                     'created_at',
@@ -39,6 +41,7 @@ class CreateTicketTest extends TestCase
 
         $this->assertDatabaseHas('tickets', [
             'title' => 'Login tidak bisa digunakan',
+            'category' => 'Masalah Teknis',
             'priority' => 'high',
             'status' => 'open',
         ]);

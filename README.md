@@ -7,7 +7,7 @@ InsightDesk adalah aplikasi web full-stack untuk mengelola support ticket dan fe
 - Frontend: React
 - Backend: Laravel REST API
 - Database: MySQL
-- AI/LLM: Gemini 2.5 Flash
+- AI/LLM: Maia Router dengan model yang dikonfigurasi melalui environment
 - Container: Docker Compose
 - API Documentation: OpenAPI/Swagger
 - Testing: PHPUnit/Pest
@@ -19,14 +19,22 @@ InsightDesk adalah aplikasi web full-stack untuk mengelola support ticket dan fe
 - View ticket detail
 - Update ticket status
 - Status history
-- AI analysis result table
+- AI ticket analysis dan penyimpanan hasil
+- Cached dashboard summary
+- Structured JSON request logging
+- Optimistic locking pada perubahan status
 - Swagger/OpenAPI documentation
+- PII masking sebelum data tiket dikirim ke AI
+- GitHub Actions CI untuk test, lint, build, dan contract validation
 
 ## Run with Docker
 
 ```bash
-docker compose up --build
+docker compose up --build -d
+docker compose ps
 ```
+
+Tunggu sampai service `mysql`, `backend`, dan `frontend` berstatus `healthy`.
 
 Frontend:
 
@@ -72,7 +80,12 @@ GET    /api/tickets
 POST   /api/tickets
 GET    /api/tickets/{ticket}
 PATCH  /api/tickets/{ticket}/status
+POST   /api/tickets/{ticket}/analyze
+GET    /api/dashboard/summary
 ```
+
+Update status wajib mengirim `version` terakhir dari tiket. API mengembalikan
+HTTP `409` jika data telah diperbarui proses lain.
 
 ## Testing
 
@@ -82,6 +95,56 @@ Run backend tests:
 docker compose exec backend php artisan test
 ```
 
-## Notes
+Frontend validation:
 
-AI analysis integration with Gemini 2.5 Flash is planned as part of the next implementation stage. Current backend already provides the table structure for storing AI analysis results.
+```bash
+docker compose exec frontend npm run lint
+docker compose exec frontend npm run build
+```
+
+Clean-state validation:
+
+```bash
+docker compose down -v
+docker compose build --no-cache
+docker compose up -d
+docker compose ps
+docker compose exec backend php artisan test
+```
+
+## AI Configuration
+
+Set `MAIA_API_KEY`, `MAIA_BASE_URL`, dan `MAIA_MODEL` pada `backend/.env`.
+Tanpa API key, fitur lain tetap berjalan dan endpoint analisis mengembalikan
+error terkontrol.
+
+Model bersifat environment-driven. Proposal awal menargetkan Gemini 2.5 Flash,
+sedangkan implementasi dapat memakai model Maia Router yang tersedia melalui
+`MAIA_MODEL` tanpa perubahan source.
+
+## Structured Logs
+
+```bash
+docker compose exec backend tail -f storage/logs/laravel.log
+```
+
+Setiap request API membawa `X-Request-ID` untuk korelasi log.
+
+## Competition Evidence
+
+Pemetaan kriteria Must Have, Nice to Have, command demo, trade-off, dan
+limitasi tersedia di:
+
+```text
+JUDGING_GUIDE.md
+```
+
+Technical report final tersedia sebagai `technical-report.pdf` (2 halaman),
+dengan source yang dapat diperbarui di `technical-report.md`.
+
+Git history TDD:
+
+```text
+d14351b add failing create ticket feature test
+f5f082e implement create ticket endpoint
+```

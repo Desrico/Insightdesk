@@ -2,9 +2,10 @@
 
 ## 1. Architecture
 
-InsightDesk uses a simple full-stack architecture consisting of React frontend, Laravel REST API backend, MySQL database, and Gemini 2.5 Flash for AI analysis.
-
-The frontend communicates only with the Laravel backend through HTTP REST API. The frontend does not directly access the database or Gemini API. The backend is responsible for request validation, business logic, database operations, logging, and communication with external AI services.
+InsightDesk menggunakan modular monolith: React frontend, Laravel REST API,
+MySQL, dan layanan AI melalui Maia Router. Browser hanya berkomunikasi dengan
+Laravel. Backend menangani validasi, business rules, optimistic locking,
+caching, structured logging, masking data sensitif, database, dan AI provider.
 
 ```text
 User / Operator
@@ -14,59 +15,90 @@ React Frontend
       |
       v
 Laravel REST API
-      |
-      |------------------|
-      v                  v
-MySQL Database      Gemini 2.5 Flash
+      |--------------------|
+      v                    v
+MySQL + DB Cache      Maia Router / AI Model
 ```
 
-Main data stored in MySQL includes tickets, status history, and AI analysis results.
+Data utama terdiri dari ticket, status history, dan satu AI analysis per ticket.
+Dashboard summary memakai cache-aside dengan TTL 60 detik. Cache di-invalidasi
+setelah create ticket, update status, dan penyimpanan hasil AI.
 
 ## 2. Key Technical Decisions
 
-### Docker Compose
+### Modular Monolith
 
-Docker Compose is used to run the frontend, backend, and MySQL database consistently from a clean state. This makes the application easier to run during evaluation without manually installing dependencies.
+Arsitektur sengaja tetap sederhana sesuai YAGNI. Controller mengatur HTTP flow,
+request object menangani validasi, service menangani cache dan AI integration,
+sedangkan Eloquent model menangani relasi data. Pemisahan ini memberi struktur
+SOLID tanpa menambah queue atau microservice yang belum diperlukan untuk MVP.
 
-### Laravel REST API
+### Optimistic Locking
 
-Laravel is used for backend development because it provides routing, request validation, ORM through Eloquent, testing support, logging, and a clear project structure.
+Setiap ticket memiliki kolom `version`. Update status dilakukan secara atomik
+dengan conditional query berdasarkan ID dan expected version. Jika row tidak
+ter-update, API mengembalikan HTTP `409`, mencatat structured warning, dan
+frontend memuat ulang versi terbaru. Strategi ini mencegah lost update ketika
+beberapa operator mengedit ticket yang sama.
 
-### MySQL
+### AI Integration and Privacy
 
-MySQL is used as the relational database because the application stores structured data such as tickets, status histories, and AI analysis results.
+Model AI dikonfigurasi melalui `MAIA_MODEL`, sehingga deployment dapat memilih
+model yang tersedia di Maia Router tanpa mengubah source. Sebelum title dan
+description dikirim, email serta nomor telepon dimasking. Prompt juga
+menegaskan bahwa isi ticket adalah data, bukan instruksi. Output AI disimpan
+sebagai rekomendasi, bukan keputusan final operator.
 
-### React
+### Structured Logging
 
-React is used for the frontend because it supports interactive UI development and is suitable for building dashboard, forms, ticket list, and detail pages.
+Middleware menambahkan atau meneruskan `X-Request-ID`, lalu mencatat event JSON
+berisi method, path, status, duration, dan IP. Conflict optimistic lock dan
+kegagalan AI dicatat sebagai event khusus. Detail exception tetap berada di log
+dan tidak dikirim ke client.
 
-### OpenAPI / Swagger
+### Docker and Readiness
 
-Swagger is used to document the API endpoints, request schema, and response schema. The documentation can be accessed through:
+Docker Compose menjalankan MySQL, backend, dan frontend dengan healthcheck.
+Startup order menggunakan kondisi healthy, bukan hanya container started.
+Backend melakukan install dependency, migrasi idempotent, dan mempertahankan
+APP_KEY yang sudah ada. Clean-state build telah diuji dengan volume database
+baru.
 
-```text
-http://localhost:8000/api-docs
-```
+### Testing and API Contract
 
-### TDD
+Test suite mencakup create validation, list pagination, detail relations,
+dashboard cache invalidation, AI success/failure, PII masking, status history,
+dan stale-version conflict. OpenAPI mendokumentasikan enam endpoint serta
+respons `409`, `422`, dan `500`. Git history menunjukkan failing create-ticket
+test dibuat sebelum implementasi endpoint.
 
-A feature test was written for creating a ticket before the endpoint implementation. This is used as proof of TDD through commit history.
+## 3. AI Usage
 
-## 3. AI Usage Log Summary
+OpenAI Codex digunakan untuk planning, repository inspection, implementation,
+debugging, test generation, Docker diagnosis, dan documentation review. Semua
+perubahan diperiksa melalui diff, test, lint, OpenAPI validation, serta clean
+Docker build. Riwayat prompt dan keputusan penggunaan tersedia di
+`AI_USAGE_LOG.md`.
 
-AI tools were used to assist with planning, Docker setup, backend structure, debugging, and frontend implementation. The detailed log is stored in:
+Contoh judgment penting adalah menolak optimistic locking berbasis perbandingan
+object di memory karena masih race-prone. Implementasi diganti dengan
+conditional database update agar conflict handling benar pada request paralel.
 
-```text
-AI_USAGE_LOG.md
-```
+## 4. Validation Result
 
-The AI output was reviewed and adjusted manually before being added to the project.
+- Backend: 12 tests, 59 assertions.
+- Frontend: ESLint dan production build lulus.
+- OpenAPI: Redocly lint lulus.
+- Docker: MySQL, backend, dan frontend healthy dari clean volume.
+- Smoke test: frontend, `/up`, Swagger UI, dan OpenAPI mengembalikan HTTP 200.
+- CI: backend, frontend, OpenAPI, dan Compose checks berjalan pada push/PR.
 
-## 4. Current Limitations
+## 5. Limitations
 
-- Authentication is not yet implemented in the current MVP.
-- Gemini AI integration is planned but not fully connected yet.
-- AI output will be treated as recommendation, not final decision.
-- Deployment is not finalized yet.
-- Caching and structured logging will be improved in the next stage.
-- Optimistic locking is implemented in a simple form using the ticket version field.
+- Authentication dan role authorization belum tersedia.
+- AI request masih synchronous dan dapat menambah latency hingga timeout.
+- PII masking berbasis pattern tidak menggantikan sistem DLP lengkap.
+- Structured logs belum dikirim ke managed monitoring dashboard.
+- Tidak ada event bus atau multi-service architecture.
+- URL deployment production belum dicantumkan sampai deployment selesai.
+- Continuous deployment belum dikonfigurasi; workflow saat ini adalah CI.

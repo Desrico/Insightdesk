@@ -2,106 +2,562 @@ openapi: 3.0.3
 info:
   title: InsightDesk API
   version: 1.0.0
-  description: API documentation for InsightDesk support ticket and AI analysis system.
-
+  license:
+    name: MIT
+    url: https://opensource.org/license/mit
+  description: |
+    REST API untuk pengelolaan support ticket, riwayat status,
+    analisis AI, dan ringkasan dashboard InsightDesk.
 servers:
-  - url: http://localhost:8000/api
-    description: Local Docker API
+  - url: /api
+    description: API pada host yang sama dengan Swagger UI
+security: []
+tags:
+  - name: Tickets
+    description: Pembuatan, pembacaan, dan perubahan status tiket.
+  - name: AI Analysis
+    description: Analisis tiket menggunakan layanan AI eksternal.
+  - name: Dashboard
+    description: Ringkasan statistik tiket untuk dashboard.
 
 paths:
   /tickets:
     get:
-      summary: Get ticket list
-      tags:
-        - Tickets
+      tags: [Tickets]
+      summary: Mengambil daftar tiket
+      operationId: listTickets
+      parameters:
+        - name: per_page
+          in: query
+          description: Jumlah tiket per halaman, dibatasi maksimum 100.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
       responses:
         "200":
-          description: Tickets retrieved successfully
+          description: Daftar tiket berhasil diambil.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/PaginatedTickets"
+        "500":
+          $ref: "#/components/responses/ServerError"
+        "400":
+          $ref: "#/components/responses/BadRequest"
     post:
-      summary: Create ticket
-      tags:
-        - Tickets
+      tags: [Tickets]
+      summary: Membuat tiket baru
+      operationId: createTicket
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - title
-                - description
-              properties:
-                title:
-                  type: string
-                  example: Login tidak bisa digunakan
-                description:
-                  type: string
-                  example: Saya tidak bisa login sejak pagi meskipun sudah reset password.
-                requester_name:
-                  type: string
-                  example: User Test
-                requester_email:
-                  type: string
-                  example: user@test.com
-                priority:
-                  type: string
-                  enum: [low, medium, high]
-                  example: high
+              $ref: "#/components/schemas/CreateTicketRequest"
       responses:
         "201":
-          description: Ticket created successfully
+          description: Tiket berhasil dibuat.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/Ticket"
+        "422":
+          $ref: "#/components/responses/ValidationError"
 
   /tickets/{ticket}:
+    parameters:
+      - $ref: "#/components/parameters/TicketId"
     get:
-      summary: Get ticket detail
-      tags:
-        - Tickets
-      parameters:
-        - name: ticket
-          in: path
-          required: true
-          schema:
-            type: integer
-          example: 1
+      tags: [Tickets]
+      summary: Mengambil detail tiket
+      operationId: getTicket
       responses:
         "200":
-          description: Ticket detail retrieved successfully
+          description: Detail tiket berhasil diambil.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/TicketDetail"
         "404":
-          description: Ticket not found
+          $ref: "#/components/responses/NotFound"
 
   /tickets/{ticket}/status:
+    parameters:
+      - $ref: "#/components/parameters/TicketId"
     patch:
-      summary: Update ticket status
-      tags:
-        - Tickets
-      parameters:
-        - name: ticket
-          in: path
-          required: true
-          schema:
-            type: integer
-          example: 1
+      tags: [Tickets]
+      summary: Memperbarui status tiket
+      operationId: updateTicketStatus
+      description: |
+        Menggunakan optimistic locking. Nilai `version` harus sama dengan versi
+        tiket terbaru. Jika berbeda, API mengembalikan HTTP 409.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required:
-                - status
-              properties:
-                status:
-                  type: string
-                  enum: [open, in_progress, resolved, closed]
-                  example: in_progress
-                note:
-                  type: string
-                  example: Mulai ditangani
-                version:
-                  type: integer
-                  example: 1
+              $ref: "#/components/schemas/UpdateTicketStatusRequest"
       responses:
         "200":
-          description: Ticket status updated successfully
+          description: Status tiket berhasil diperbarui.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/TicketDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "409":
-          description: Conflict detected
+          description: Versi tiket sudah berubah.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConflictResponse"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /tickets/{ticket}/analyze:
+    parameters:
+      - $ref: "#/components/parameters/TicketId"
+    post:
+      tags: [AI Analysis]
+      summary: Menjalankan analisis AI untuk tiket
+      operationId: analyzeTicket
+      description: |
+        Membuat atau memperbarui satu hasil analisis AI yang terkait dengan tiket.
+        Endpoint membutuhkan konfigurasi Maia Router yang valid.
+      responses:
+        "200":
+          description: Tiket berhasil dianalisis.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/TicketDetail"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          description: Layanan AI gagal atau belum dikonfigurasi.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /dashboard/summary:
+    get:
+      tags: [Dashboard]
+      summary: Mengambil ringkasan dashboard
+      operationId: getDashboardSummary
+      description: Hasil di-cache selama 60 detik dan di-invalidasi saat data terkait berubah.
+      responses:
+        "200":
+          description: Ringkasan dashboard berhasil diambil.
+          headers:
+            X-Request-ID:
+              $ref: "#/components/headers/RequestId"
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessResponse"
+                  - type: object
+                    properties:
+                      data:
+                        $ref: "#/components/schemas/DashboardSummary"
+        "500":
+          $ref: "#/components/responses/ServerError"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+components:
+  headers:
+    RequestId:
+      description: ID korelasi request untuk structured logging.
+      schema:
+        type: string
+        format: uuid
+
+  parameters:
+    TicketId:
+      name: ticket
+      in: path
+      required: true
+      description: ID tiket.
+      schema:
+        type: integer
+        minimum: 1
+      example: 1
+
+  responses:
+    BadRequest:
+      description: Request tidak dapat diproses.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ValidationError:
+      description: Request tidak lolos validasi.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/LaravelValidationError"
+    NotFound:
+      description: Tiket tidak ditemukan.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: No query results for model [App\Models\Ticket] 999
+    ServerError:
+      description: Terjadi kesalahan internal.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    SuccessResponse:
+      type: object
+      required: [success, message, data]
+      properties:
+        success:
+          type: boolean
+          example: true
+        message:
+          type: string
+
+    ErrorResponse:
+      type: object
+      required: [success, message]
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+        errors:
+          type: object
+          nullable: true
+          additionalProperties: true
+
+    LaravelValidationError:
+      type: object
+      required: [message, errors]
+      properties:
+        message:
+          type: string
+          example: The title field is required.
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+
+    ConflictResponse:
+      allOf:
+        - $ref: "#/components/schemas/ErrorResponse"
+        - type: object
+          properties:
+            errors:
+              type: object
+              required: [current_version]
+              properties:
+                current_version:
+                  type: integer
+                  example: 2
+
+    CreateTicketRequest:
+      type: object
+      required: [title, description, category]
+      properties:
+        title:
+          type: string
+          maxLength: 150
+          example: Login tidak bisa digunakan
+        description:
+          type: string
+          example: Saya tidak bisa login sejak pagi meskipun sudah reset password.
+        requester_name:
+          type: string
+          nullable: true
+          maxLength: 100
+          example: User Test
+        requester_email:
+          type: string
+          nullable: true
+          format: email
+          maxLength: 150
+          example: user@test.com
+        category:
+          type: string
+          enum:
+            - Masalah Teknis
+            - Pertanyaan
+            - Feedback
+            - Permintaan Fitur
+            - Lainnya
+          example: Masalah Teknis
+        priority:
+          $ref: "#/components/schemas/Priority"
+
+    UpdateTicketStatusRequest:
+      type: object
+      required: [status, version]
+      properties:
+        status:
+          $ref: "#/components/schemas/TicketStatus"
+        note:
+          type: string
+          nullable: true
+          example: Mulai ditangani oleh support.
+        version:
+          type: integer
+          minimum: 1
+          example: 1
+
+    Ticket:
+      type: object
+      required:
+        - id
+        - title
+        - description
+        - priority
+        - status
+        - version
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: integer
+          example: 1
+        title:
+          type: string
+          example: Login tidak bisa digunakan
+        description:
+          type: string
+        requester_name:
+          type: string
+          nullable: true
+        requester_email:
+          type: string
+          format: email
+          nullable: true
+        category:
+          type: string
+          nullable: true
+        priority:
+          $ref: "#/components/schemas/Priority"
+        status:
+          $ref: "#/components/schemas/TicketStatus"
+        version:
+          type: integer
+          minimum: 1
+          example: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    TicketDetail:
+      allOf:
+        - $ref: "#/components/schemas/Ticket"
+        - type: object
+          required: [status_histories, ai_analysis]
+          properties:
+            status_histories:
+              type: array
+              items:
+                $ref: "#/components/schemas/StatusHistory"
+            ai_analysis:
+              type: object
+              allOf:
+                - $ref: "#/components/schemas/AiAnalysis"
+              nullable: true
+
+    StatusHistory:
+      type: object
+      properties:
+        id:
+          type: integer
+        ticket_id:
+          type: integer
+        from_status:
+          type: string
+          enum: [open, in_progress, resolved]
+          nullable: true
+        to_status:
+          $ref: "#/components/schemas/TicketStatus"
+        note:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    AiAnalysis:
+      type: object
+      properties:
+        id:
+          type: integer
+        ticket_id:
+          type: integer
+        summary:
+          type: string
+          nullable: true
+        category:
+          type: string
+          nullable: true
+        sentiment:
+          type: string
+          nullable: true
+          example: Negatif
+        priority_suggestion:
+          type: string
+          nullable: true
+          example: Tinggi
+        recommendation:
+          type: string
+          nullable: true
+        raw_response:
+          type: object
+          nullable: true
+          additionalProperties: true
+        analyzed_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    DashboardSummary:
+      type: object
+      required:
+        - total_tickets
+        - new_tickets
+        - in_progress_tickets
+        - resolved_tickets
+        - ai_analyzed_tickets
+      properties:
+        total_tickets:
+          type: integer
+          example: 20
+        new_tickets:
+          type: integer
+          example: 5
+        in_progress_tickets:
+          type: integer
+          example: 7
+        resolved_tickets:
+          type: integer
+          example: 6
+        ai_analyzed_tickets:
+          type: integer
+          example: 12
+
+    PaginatedTickets:
+      type: object
+      properties:
+        current_page:
+          type: integer
+        data:
+          type: array
+          items:
+            allOf:
+              - $ref: "#/components/schemas/Ticket"
+              - type: object
+                properties:
+                  ai_analysis:
+                    type: object
+                    allOf:
+                      - $ref: "#/components/schemas/AiAnalysis"
+                    nullable: true
+        first_page_url:
+          type: string
+        from:
+          type: integer
+          nullable: true
+        last_page:
+          type: integer
+        last_page_url:
+          type: string
+        links:
+          type: array
+          items:
+            type: object
+        next_page_url:
+          type: string
+          nullable: true
+        path:
+          type: string
+        per_page:
+          type: integer
+        prev_page_url:
+          type: string
+          nullable: true
+        to:
+          type: integer
+          nullable: true
+        total:
+          type: integer
+
+    Priority:
+      type: string
+      enum: [low, medium, high]
+      default: medium
+
+    TicketStatus:
+      type: string
+      enum: [open, in_progress, resolved]
