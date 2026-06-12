@@ -17,6 +17,7 @@ Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
 
 Route::get('/health', function () {
     return response()->json([
-        'status' => 'ok'
+        'status' => 'ok',
+        'service' => 'insightdesk-backend'
     ]);
 });
