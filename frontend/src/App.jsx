@@ -5,6 +5,7 @@ import UserPortal from "./UserPortal";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
+const API_DOCS_URL = API_BASE_URL.replace(/\/api\/?$/, "/api-docs");
 
 const statusLabels = {
   open: "Baru",
@@ -284,6 +285,7 @@ function App() {
         onUpdateStatus={handleUpdateStatus}
         onAnalyze={handleAnalyzeTicket}
         onCloseDetail={() => setSelectedTicket(null)}
+        apiDocsUrl={API_DOCS_URL}
       />
     );
   }
@@ -327,7 +329,7 @@ function App() {
               Mulai Buat Tiket
             </a>
             <a
-              href="http://localhost:8000/api-docs"
+              href={API_DOCS_URL}
               className="secondary-link"
               target="_blank"
             >

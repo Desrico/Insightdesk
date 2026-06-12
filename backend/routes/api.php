@@ -14,3 +14,9 @@ Route::get('/tickets/{ticket}', [TicketController::class, 'show']);
 Route::patch('/tickets/{ticket}/status', [TicketController::class, 'updateStatus']);
 Route::post('/tickets/{ticket}/analyze', [TicketController::class, 'analyze']);
 Route::get('/dashboard/summary', [DashboardController::class, 'summary']);
+
+Route::get('/health', function () {
+    return response()->json([
+        'status' => 'ok'
+    ]);
+});

@@ -1,5 +1,8 @@
 # InsightDesk
 
+Panduan deployment production tersedia di
+[RAILWAY_DEPLOYMENT.md](RAILWAY_DEPLOYMENT.md).
+
 InsightDesk adalah aplikasi web full-stack untuk mengelola support ticket dan feedback pengguna. Sistem ini membantu operator melihat daftar ticket, membuat ticket baru, melihat detail ticket, memperbarui status, menyimpan riwayat status, dan menyiapkan hasil analisis AI.
 
 ## Tech Stack

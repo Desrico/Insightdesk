@@ -36,6 +36,7 @@ function AdminWorkspace({
   onUpdateStatus,
   onAnalyze,
   onCloseDetail,
+  apiDocsUrl,
 }) {
   const [activeView, setActiveView] = useState("dashboard");
   const [search, setSearch] = useState("");
@@ -143,7 +144,7 @@ function AdminWorkspace({
             <button type="button" className="admin-refresh" onClick={onRefresh} disabled={loading}>
               {loading ? "Memuat..." : "Muat Ulang"}
             </button>
-            <a href="http://localhost:8000/api-docs" target="_blank" rel="noreferrer">
+            <a href={apiDocsUrl} target="_blank" rel="noreferrer">
               API Docs
             </a>
           </div>
